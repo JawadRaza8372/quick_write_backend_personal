@@ -65,8 +65,20 @@ io.on("connection", (socket) => {
 		try {
 			if (message?.chatRoomId) {
 				const messageChatRoomId = message?.chatRoomId;
-				const chatHistory =
-					message?.history?.length > 0 ? message?.history : [];
+				const messageContent = message?.content;
+				const userMsg = {
+					_id: new mongoose.Types.ObjectId(),
+					role: "user",
+					content: messageContent,
+					createdAt: Date.now(),
+				};
+				// 2️⃣ Get previous history from client or empty array
+				const chatHistory = Array.isArray(message?.history)
+					? [...message.history]
+					: [];
+
+				// 3️⃣ Add the new user message to history
+				chatHistory.push(userMsg);
 				const messagesForAI = chatHistory.map((m) => ({
 					role: m.role,
 					content: m.content,
@@ -85,9 +97,10 @@ io.on("connection", (socket) => {
 					content: aiReply,
 					createdAt: Date.now(),
 				};
+				chatHistory.push(aiMsg);
 
 				// 3️⃣ Emit AI reply to frontend
-				io.to(messageChatRoomId).emit("newMessage", aiMsg);
+				io.to(messageChatRoomId).emit("newMessage", chatHistory);
 			}
 		} catch (err) {
 			console.error("Error sending message:", err);
