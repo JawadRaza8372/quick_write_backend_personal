@@ -65,28 +65,17 @@ io.on("connection", (socket) => {
 		try {
 			if (message?.chatRoomId) {
 				const messageChatRoomId = message?.chatRoomId;
-				let session = await ChatSessionModal.findById(messageChatRoomId);
-				// 2. Create message manually (so we have _id before save)
-				const userMsg = {
-					_id: new mongoose.Types.ObjectId(),
-					role: "user",
-					content: message.content,
-					createdAt: Date.now(),
-				};
-
-				// 3. Save user message
-				session.messages.push(userMsg);
-
-				io.to(messageChatRoomId).emit("newMessage", userMsg);
-				const chatMessages = [...session.messages, userMsg].map((m) => ({
+				const chatHistory =
+					message?.history?.length > 0 ? message?.history : [];
+				const messagesForAI = chatHistory.map((m) => ({
 					role: m.role,
 					content: m.content,
 				}));
 
-				// 5. Get AI reply from Groq
+				// 2️⃣ Get AI reply
 				const completion = await openAiClient.chat.completions.create({
 					model: "gpt-4o-mini",
-					messages: chatMessages,
+					messages: messagesForAI,
 				});
 
 				const aiReply = completion.choices[0].message.content;
@@ -97,15 +86,8 @@ io.on("connection", (socket) => {
 					createdAt: Date.now(),
 				};
 
-				// 6️⃣ Emit AI message to frontend
+				// 3️⃣ Emit AI reply to frontend
 				io.to(messageChatRoomId).emit("newMessage", aiMsg);
-
-				// 7️⃣ Save both messages in one DB call
-				await ChatSessionModal.findByIdAndUpdate(
-					messageChatRoomId,
-					{ $push: { messages: { $each: [userMsg, aiMsg] } } },
-					{ upsert: true }
-				);
 			}
 		} catch (err) {
 			console.error("Error sending message:", err);
