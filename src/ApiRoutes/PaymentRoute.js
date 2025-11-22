@@ -123,14 +123,22 @@ module.exports = (io) => {
 					.status(400)
 					.json({ message: "No active subscription found" });
 
-			await stripe.subscriptions.del(user.stripeSubscriptionId);
+			// Cancel subscription at period end
+			const canceledSubscription = await stripe.subscriptions.update(
+				user.stripeSubscriptionId,
+				{ cancel_at_period_end: true }
+			);
 
-			user.activePlan = "free";
-			user.stripeSubscriptionId = "";
-			user.expiresAt = new Date();
+			// Update user record with cancel info but do not change activePlan
+			user.stripeSubscriptionId = canceledSubscription.id;
+			user.expiresAt = new Date(canceledSubscription.current_period_end * 1000);
 			await user.save();
 
-			res.status(200).json({ message: "Subscription canceled successfully" });
+			res.status(200).json({
+				message:
+					"Subscription canceled. Access will remain until the period ends.",
+				expiresAt: user.expiresAt,
+			});
 		} catch (err) {
 			res.status(500).json({ message: err.message });
 		}
@@ -139,7 +147,7 @@ module.exports = (io) => {
 	// -----------------------
 	// 4️⃣ Get Subscription Summary
 	// -----------------------
-	router.get("/subscription-summary", authenticateJWT, async (req, res) => {
+	router.get("/payments", authenticateJWT, async (req, res) => {
 		try {
 			const user = await User.findById(req.user.id);
 
@@ -152,11 +160,11 @@ module.exports = (io) => {
 				status: "succeeded",
 			});
 
-			res.status(200).json({
-				cardBrand: user.cardBrand,
-				cardLast4: user.cardLast4,
-				pricePaid: payments.length > 0 ? payments[0].amount : 0,
-				completedPayments: payments.length,
+			return res.status(200).json({
+				cardBrand: user.cardBrand ?? "",
+				cardLast4: user.cardLast4 ?? "",
+				pricePaid: payments?.length > 0 ? payments?.[0]?.amount : 0,
+				completedPayments: payments,
 			});
 		} catch (err) {
 			res.status(500).json({ message: err.message });
