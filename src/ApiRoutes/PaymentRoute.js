@@ -8,11 +8,16 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
 const User = require("../models/UserModal");
 // Define Stripe Price IDs for your plans
 const PLAN_PRICES = {
-	test: { priceId: process.env.STRIPE_TEST_PRICE_ID, amount: 299 },
-	pro: { priceId: process.env.STRIPE_PRO_PRICE_ID, amount: 799 },
-	premium: { priceId: process.env.STRIPE_PREMIUM_PRICE_ID, amount: 9500 },
+	test: {
+		priceId: process.env.STRIPE_TEST_PRICE_ID ?? "price_1NxxxxxTest",
+	},
+	pro: {
+		priceId: process.env.STRIPE_PRO_PRICE_ID ?? "price_1NxxxxxPro",
+	},
+	premium: {
+		priceId: process.env.STRIPE_PREMIUM_PRICE_ID ?? "price_1NxxxxxPremium",
+	},
 };
-
 module.exports = (io) => {
 	// -----------------------
 	// 1️⃣ Create Setup Intent (attach card)
@@ -170,6 +175,120 @@ module.exports = (io) => {
 			res.status(500).json({ message: err.message });
 		}
 	});
+	//webhook
+	router.post(
+		"/stripe-webhook",
+		bodyParser.raw({ type: "application/json" }),
+		async (req, res) => {
+			const sig = req.headers["stripe-signature"];
+			let event;
 
+			try {
+				event = stripe.webhooks.constructEvent(
+					req.body,
+					sig,
+					process.env.STRIPE_WEBHOOK_SECRET
+				);
+			} catch (err) {
+				return res.status(400).send(`Webhook Error: ${err.message}`);
+			}
+
+			try {
+				switch (event.type) {
+					case "invoice.payment_succeeded": {
+						const invoice = event.data.object;
+						const subscriptionId = invoice.subscription;
+						const customerId = invoice.customer;
+
+						const user = await User.findOne({ stripeCustomerId: customerId });
+						if (!user) break;
+
+						const priceId = invoice.lines.data[0].price.id;
+						const planName = Object.keys(PLAN_PRICES).find(
+							(key) => PLAN_PRICES[key].priceId === priceId
+						);
+
+						if (!planName) break;
+
+						const paymentIntent = await stripe.paymentIntents.retrieve(
+							invoice.payment_intent
+						);
+
+						await PaymentModal.create({
+							userId: user._id,
+							subscriptionId,
+							invoiceId: invoice.id,
+							paymentIntentId: paymentIntent.id,
+							amount: paymentIntent.amount / 100,
+							currency: paymentIntent.currency,
+							paymentMethod: paymentIntent.payment_method_types[0],
+							cardBrand:
+								paymentIntent.charges?.data?.[0]?.payment_method_details?.card
+									?.brand ?? "",
+							cardLast4:
+								paymentIntent.charges?.data?.[0]?.payment_method_details?.card
+									?.last4 ?? "",
+							status: paymentIntent.status,
+							planName,
+							receiptUrl: paymentIntent.charges?.data?.[0]?.receipt_url ?? null,
+						});
+
+						if (user.stripeSubscriptionId === subscriptionId) {
+							user.activePlan = planName;
+							user.expiresAt = new Date(
+								invoice.lines.data[0].period?.end * 1000 ||
+									invoice.period_end * 1000
+							);
+							user.cardBrand =
+								paymentIntent.charges?.data?.[0]?.payment_method_details?.card
+									?.brand ?? "";
+							user.cardLast4 =
+								paymentIntent.charges?.data?.[0]?.payment_method_details?.card
+									?.last4 ?? "";
+							await user.save();
+						}
+						break;
+					}
+
+					case "customer.subscription.updated": {
+						const subscription = event.data.object;
+						const user = await User.findOne({
+							stripeCustomerId: subscription.customer,
+						});
+						if (!user) break;
+
+						const priceId = subscription.items.data[0].price.id;
+						const planName = Object.keys(PLAN_PRICES).find(
+							(key) => PLAN_PRICES[key].priceId === priceId
+						);
+
+						if (planName) {
+							user.activePlan = planName;
+							user.expiresAt = new Date(subscription.current_period_end * 1000);
+							await user.save();
+						}
+						break;
+					}
+
+					case "invoice.payment_failed": {
+						const invoice = event.data.object;
+						const user = await User.findOne({
+							stripeCustomerId: invoice.customer,
+						});
+						if (!user) break;
+						// Optional: notify user about failed payment
+						console.log(
+							`Payment failed for user ${user._id}, invoice ${invoice.id}`
+						);
+						break;
+					}
+				}
+			} catch (err) {
+				console.error("Webhook processing error:", err);
+			}
+
+			res.json({ received: true });
+		}
+	);
 	return router;
 };
