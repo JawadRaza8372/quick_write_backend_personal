@@ -7,23 +7,14 @@ const paymentSchema = new mongoose.Schema(
 			ref: "User",
 			required: true,
 		},
-		paymentIntentId: {
-			type: String,
-			required: true,
-			unique: true,
-		},
-		amount: {
-			type: Number,
-			required: true,
-		},
-		currency: {
-			type: String,
-			default: "usd",
-		},
-		paymentMethod: {
-			type: String,
-			dafault: "card",
-		},
+		subscriptionId: { type: String, default: "" },
+		invoiceId: { type: String, default: "" },
+		paymentIntentId: { type: String, default: "" },
+		amount: { type: Number, required: true },
+		currency: { type: String, default: "usd" },
+		paymentMethod: { type: String, default: "card" },
+		cardBrand: { type: String, default: "" },
+		cardLast4: { type: String, default: "" },
 		status: {
 			type: String,
 			enum: [
@@ -32,16 +23,12 @@ const paymentSchema = new mongoose.Schema(
 				"requires_action",
 				"requires_payment_method",
 				"canceled",
+				"pending",
 			],
 			required: true,
 		},
-		planName: {
-			type: String,
-			required: true,
-		},
-		receiptUrl: {
-			type: String,
-		},
+		planName: { type: String, required: true },
+		receiptUrl: { type: String, default: "" },
 	},
 	{ timestamps: true }
 );

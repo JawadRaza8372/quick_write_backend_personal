@@ -29,6 +29,12 @@ const userSchema = new Schema(
 			default: "30days",
 			enum: ["0day", "30days"],
 		},
+		// Stripe fields for subscriptions
+		stripeCustomerId: { type: String, default: "" },
+		stripeSubscriptionId: { type: String, default: "" },
+		paymentMethodId: { type: String, default: "" },
+		cardBrand: { type: String, default: "" },
+		cardLast4: { type: String, default: "" },
 	},
 	{ timestamps: true }
 );
