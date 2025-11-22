@@ -1,7 +1,6 @@
 const router = require("express").Router();
 const User = require("../models/UserModal");
 const axios = require("axios");
-const ChatSessionModal = require("../models/ChatSessionModal");
 const bcrypt = require("bcrypt");
 const { sendPasswordResetEmail } = require("../config/sendEmail");
 const {
@@ -87,14 +86,14 @@ module.exports = (io) => {
 					authProvider: "google",
 					providerId: googleUser?.id,
 					expiresAt: expiryDate,
+					chatHistoryDuration: "30days",
 				});
 				await user.save();
 				console.log("user data saved");
 			}
-			const fetchChatRoom = await ChatSessionModal.findOne({
-				userId: user._id,
-			});
-			const { _id, __v, password, providerId, ...rest } = user?._doc;
+
+			const { _id, __v, password, providerId, lastLoggedIn, ...rest } =
+				user?._doc;
 
 			const userObj = {
 				tokens: {
@@ -105,7 +104,6 @@ module.exports = (io) => {
 						id: _id.toString(),
 					}),
 				},
-				chatRoomId: fetchChatRoom?._id,
 				...rest,
 			};
 			console.log("user object created");
@@ -192,14 +190,14 @@ module.exports = (io) => {
 					authProvider: "facebook",
 					providerId: formattedData?.id,
 					expiresAt: expiryDate,
+					chatHistoryDuration: "30days",
 				});
 				await user.save();
 				console.log("user data saved");
 			}
-			const fetchChatRoom = await ChatSessionModal.findOne({
-				userId: user._id,
-			});
-			const { _id, __v, password, providerId, ...rest } = user?._doc;
+
+			const { _id, __v, password, providerId, lastLoggedIn, ...rest } =
+				user?._doc;
 
 			const userObj = {
 				tokens: {
@@ -210,7 +208,6 @@ module.exports = (io) => {
 						id: _id.toString(),
 					}),
 				},
-				chatRoomId: fetchChatRoom?._id,
 				...rest,
 			};
 			console.log("user object created");
@@ -243,6 +240,7 @@ module.exports = (io) => {
 				password,
 				authProvider: "local",
 				expiresAt: expiryDate,
+				chatHistoryDuration: "30days",
 			});
 			await user.save();
 			return res.status(201).json({ message: "User registered successfully" });
@@ -275,10 +273,9 @@ module.exports = (io) => {
 			if (!isMatch) {
 				return res.status(400).json({ message: "Incorrect password." });
 			}
-			const fetchChatRoom = await ChatSessionModal.findOne({
-				userId: user._id,
-			});
-			const { _id, password, providerId, __v, ...rest } = user?._doc;
+
+			const { _id, password, providerId, lastLoggedIn, __v, ...rest } =
+				user?._doc;
 
 			return res.status(201).json({
 				user: {
@@ -290,7 +287,6 @@ module.exports = (io) => {
 							id: _id.toString(),
 						}),
 					},
-					chatRoomId: fetchChatRoom?._id,
 					...rest,
 				},
 			});
@@ -327,7 +323,45 @@ module.exports = (io) => {
 			});
 		}
 	});
+	router.post("/registerLastLogin", authenticateJWT, async (req, res) => {
+		try {
+			const { id } = req?.user;
 
+			const user = await User.findById(id);
+			if (!user) {
+				return res
+					.status(400)
+					.json({ message: "No account associated with this email." });
+			}
+
+			if (!user) {
+				return res.status(404).json({ message: "User not found" });
+			}
+
+			// If user has no lastLoggedIn value, initialize it
+			if (!user.lastLoggedIn) {
+				user.lastLoggedIn = new Date();
+				await user.save();
+				return res.status(200).json({ message: "Last login saved" });
+			}
+
+			const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+
+			if (user.lastLoggedIn < threeHoursAgo) {
+				// Last login older than 3 hours → update
+				user.lastLoggedIn = new Date();
+				await user.save();
+				return res.status(200).json({ message: "Last login updated" });
+			}
+
+			// Last login recent → no update
+			return res
+				.status(200)
+				.json({ message: "Last login is recent, no update needed" });
+		} catch (err) {
+			return res.status(500).json({ message: err.message });
+		}
+	});
 	router.get("/userProfile", authenticateJWT, async (req, res) => {
 		try {
 			const { id } = req?.user;
@@ -339,10 +373,8 @@ module.exports = (io) => {
 					.json({ message: "No account associated with this email." });
 			}
 
-			const { _id, password, providerId, ...rest } = user?._doc;
-			const fetchChatRoom = await ChatSessionModal.findOne({
-				userId: user._id,
-			});
+			const { _id, password, providerId, lastLoggedIn, ...rest } = user?._doc;
+
 			return res.status(201).json({
 				user: {
 					tokens: {
@@ -353,7 +385,6 @@ module.exports = (io) => {
 							id: _id.toString(),
 						}),
 					},
-					chatRoomId: fetchChatRoom?._id,
 					...rest,
 				},
 			});
@@ -366,16 +397,17 @@ module.exports = (io) => {
 	router.put("/edit-profile", authenticateJWT, async (req, res) => {
 		try {
 			const { id } = req?.user;
-			const { username } = req?.body;
+			const { username, chatHistoryDuration } = req?.body;
 			await User.findByIdAndUpdate(id, {
 				username,
+				chatHistoryDuration,
 			});
 			const user = await User.findById(id);
 
 			if (!user) {
 				return res.status(400).json({ message: "account not found" });
 			}
-			const { _id, password, providerId, ...rest } = user?._doc;
+			const { _id, password, providerId, lastLoggedIn, ...rest } = user?._doc;
 			io.emit("userProfileUpdated", id);
 			return res.status(201).json({
 				user: {
@@ -472,7 +504,6 @@ module.exports = (io) => {
 					message: "Account not found.",
 				});
 			}
-			await ChatSessionModal.findOneAndDelete({ userId: id });
 			await User.findByIdAndDelete(id);
 			return res.status(200).json({ message: "Account deleted successfully." });
 		} catch (err) {

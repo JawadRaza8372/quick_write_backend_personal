@@ -5,8 +5,6 @@ const cors = require("cors");
 const socketIo = require("socket.io");
 const allowedOrigins = ["http://localhost:4000"];
 const bodyParser = require("body-parser");
-const chatRoutes = require("./src/ApiRoutes/ChatRoute");
-const ChatSessionModal = require("./src/models/ChatSessionModal");
 const { openAiClient } = require("./src/config/groqClient");
 const path = require("path");
 const mongoose = require("mongoose");
@@ -37,13 +35,13 @@ app.use(
 );
 const authRoutes = require("./src/ApiRoutes/AuthRoute")(io);
 const paymentRoutes = require("./src/ApiRoutes/PaymentRoute")(io);
-
+const deleteLogRoutes = require("./src/ApiRoutes/DeleteLogRoute")(io);
 app.use(bodyParser.json({ limit: "80mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "80mb" }));
 
 // Routes
 app.use("/auth", authRoutes);
-app.use("/ai-chat", chatRoutes);
+app.use("/delete-log", deleteLogRoutes);
 app.use("/subscription", paymentRoutes);
 app.get("/", (req, res) => {
 	res.status(200).send("server is live. :) ");

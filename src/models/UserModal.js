@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 const Schema = mongoose.Schema;
-const ChatSessionModal = require("./ChatSessionModal");
 const userSchema = new Schema(
 	{
 		username: { type: String, required: true, minlength: 2 },
@@ -20,6 +19,16 @@ const userSchema = new Schema(
 			enum: ["local", "google", "facebook"],
 			default: "local",
 		},
+		//new fields
+		lastLoggedIn: {
+			type: Date,
+			default: Date.now,
+		},
+		chatHistoryDuration: {
+			type: String,
+			default: "30days",
+			enum: ["0day", "30days"],
+		},
 	},
 	{ timestamps: true }
 );
@@ -30,23 +39,6 @@ userSchema.pre("save", async function (next) {
 		this.password = await bcrypt.hash(this.password, 10);
 	}
 	next();
-});
-userSchema.post("save", async function (doc, next) {
-	try {
-		// Check if a chat session already exists (avoid duplicates)
-		const existing = await ChatSessionModal.findOne({ userId: doc?._id });
-		if (!existing) {
-			await ChatSessionModal.create({
-				userId: doc?._id,
-				messages: [],
-			});
-			console.log("Chat session created for user:", doc?._id);
-		}
-		next();
-	} catch (err) {
-		console.error("Error creating chat session:", err);
-		next(err);
-	}
 });
 const User = mongoose.model("User", userSchema);
 module.exports = User;
