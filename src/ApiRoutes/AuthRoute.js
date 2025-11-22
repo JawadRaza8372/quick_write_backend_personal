@@ -10,6 +10,10 @@ const {
 	getCurrentPlanExpiry,
 } = require("../config/JwtHelpers");
 const jwt = require("jsonwebtoken");
+const {
+	userFormattedDataDto,
+	userFormattedDataDtoSimple,
+} = require("../config/dataDto");
 module.exports = (io) => {
 	function generateRandom4DigitNumber() {
 		return Math.floor(100000 + Math.random() * 900000);
@@ -91,25 +95,12 @@ module.exports = (io) => {
 				await user.save();
 				console.log("user data saved");
 			}
+			const result = await userFormattedDataDto(user?._doc);
 
-			const { _id, __v, password, providerId, lastLoggedIn, ...rest } =
-				user?._doc;
-
-			const userObj = {
-				tokens: {
-					accessToken: generateAccessToken({
-						id: _id.toString(),
-					}),
-					refreshToken: generateRefreshToken({
-						id: _id.toString(),
-					}),
-				},
-				...rest,
-			};
 			console.log("user object created");
 
 			const frontendUrl = `com.quickwrite://login-success?user=${encodeURIComponent(
-				JSON.stringify(userObj)
+				JSON.stringify(result)
 			)}`;
 			console.log("sedning redirect");
 
@@ -195,25 +186,12 @@ module.exports = (io) => {
 				await user.save();
 				console.log("user data saved");
 			}
+			const result = await userFormattedDataDto(user?._doc);
 
-			const { _id, __v, password, providerId, lastLoggedIn, ...rest } =
-				user?._doc;
-
-			const userObj = {
-				tokens: {
-					accessToken: generateAccessToken({
-						id: _id.toString(),
-					}),
-					refreshToken: generateRefreshToken({
-						id: _id.toString(),
-					}),
-				},
-				...rest,
-			};
 			console.log("user object created");
 
 			const frontendUrl = `com.quickwrite://login-success?user=${encodeURIComponent(
-				JSON.stringify(userObj)
+				JSON.stringify(result)
 			)}`;
 			console.log("sedning redirect");
 
@@ -273,22 +251,9 @@ module.exports = (io) => {
 			if (!isMatch) {
 				return res.status(400).json({ message: "Incorrect password." });
 			}
-
-			const { _id, password, providerId, lastLoggedIn, __v, ...rest } =
-				user?._doc;
-
+			const result = await userFormattedDataDto(user?._doc);
 			return res.status(201).json({
-				user: {
-					tokens: {
-						accessToken: generateAccessToken({
-							id: _id.toString(),
-						}),
-						refreshToken: generateRefreshToken({
-							id: _id.toString(),
-						}),
-					},
-					...rest,
-				},
+				user: result,
 			});
 		} catch (err) {
 			return res.status(500).json({
@@ -372,21 +337,10 @@ module.exports = (io) => {
 					.status(400)
 					.json({ message: "No account associated with this email." });
 			}
-
-			const { _id, password, providerId, lastLoggedIn, ...rest } = user?._doc;
+			const result = await userFormattedDataDto(user?._doc);
 
 			return res.status(201).json({
-				user: {
-					tokens: {
-						accessToken: generateAccessToken({
-							id: _id.toString(),
-						}),
-						refreshToken: generateRefreshToken({
-							id: _id.toString(),
-						}),
-					},
-					...rest,
-				},
+				user: result,
 			});
 		} catch (err) {
 			return res.status(500).json({
@@ -407,12 +361,10 @@ module.exports = (io) => {
 			if (!user) {
 				return res.status(400).json({ message: "account not found" });
 			}
-			const { _id, password, providerId, lastLoggedIn, ...rest } = user?._doc;
+			const result = await userFormattedDataDtoSimple(user?._doc);
 			io.emit("userProfileUpdated", id);
 			return res.status(201).json({
-				user: {
-					...rest,
-				},
+				user: result,
 			});
 		} catch (err) {
 			return res.status(500).json({ message: err.message });
@@ -490,9 +442,9 @@ module.exports = (io) => {
 			user.password = newPassword;
 			await user.save();
 
-			res.status(201).json({ message: "Password has been reset." });
+			return res.status(201).json({ message: "Password has been reset." });
 		} catch (err) {
-			res.status(500).json({ message: err.message });
+			return res.status(500).json({ message: err.message });
 		}
 	});
 	router.delete("/deleteUserAccount", authenticateJWT, async (req, res) => {
